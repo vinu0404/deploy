@@ -160,9 +160,9 @@ with col2:
                 else:
                     st.warning("Please provide an answer before submitting.")
 
-    st.markdown("## 💬 Chat History")
+    st.markdown("## 💬 Your Response")
     for role, message in st.session_state["chat_history"]:
-        st.markdown(f"<div class='chat-box bot-message'><b>🤖 {role}:</b> {message}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='chat-box bot-message'><b>🧑‍💻 {role}:</b> {message}</div>", unsafe_allow_html=True)
 
 if st.button("End Interview"):
     st.success("Thank you for your time!")
