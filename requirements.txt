@@ -1,0 +1,6 @@
+streamlit
+boto3
+langchain-aws
+langchain-community
+chromadb
+
