@@ -15,6 +15,8 @@ BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "mistral.mistral-7b-instruct-v0
 BEDROCK_EMBEDDING_MODEL_ID = os.getenv("BEDROCK_EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2:0")
 CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_db")
 
+
+
 # 🔹 Initialize AWS Bedrock Client
 try:
     bedrock_client = boto3.client(
