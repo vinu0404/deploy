@@ -1,51 +1,64 @@
 import streamlit as st
 import boto3
+import os
+import json
+from botocore.exceptions import BotoCoreError, NoCredentialsError
 from langchain_aws import BedrockLLM
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import BedrockEmbeddings
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 
-# Load AWS credentials from Streamlit secrets
-aws_access_key = st.secrets["aws"]["aws_access_key_id"]
-aws_secret_key = st.secrets["aws"]["aws_secret_access_key"]
-aws_region = st.secrets["aws"]["region"]
+# Fetch AWS credentials securely from Render environment variables
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_SECRET_NAME = os.getenv("AWS_SECRET_NAME")
 
-# Initialize Boto3 client using secrets
-bedrock_client = boto3.client(
-    service_name="bedrock-runtime",
-    region_name=aws_region,
-    aws_access_key_id=aws_access_key,
-    aws_secret_access_key=aws_secret_key
-)
+# Function to fetch secrets from AWS Secrets Manager
+def get_aws_secrets(secret_name, region_name="us-east-1"):
+    try:
+        session = boto3.session.Session()
+        client = session.client(service_name="secretsmanager", region_name=region_name)
+        secret_response = client.get_secret_value(SecretId=secret_name)
+        secret = json.loads(secret_response["SecretString"])
+        return secret
+    except (BotoCoreError, NoCredentialsError) as e:
+        st.error(f"Error fetching AWS Secrets: {e}")
+        return None
 
-# LLM and Embeddings Setup
-llm = BedrockLLM(
-    client=bedrock_client,
-    model_id="mistral.mistral-7b-instruct-v0:2"
-)
+# Retrieve secrets
+aws_secrets = get_aws_secrets(secret_name=AWS_SECRET_NAME, region_name=AWS_REGION)
 
-embedding_model = BedrockEmbeddings(
-    client=bedrock_client,
-    model_id="amazon.titan-embed-text-v2:0"
-)
+if aws_secrets:
+    bedrock_client = boto3.client(
+        service_name="bedrock-runtime",
+        region_name=AWS_REGION,
+        aws_access_key_id=aws_secrets["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=aws_secrets["AWS_SECRET_ACCESS_KEY"]
+    )
 
-# ChromaDB Setup
-vectorstore = Chroma(
-    collection_name="ai_candidates",
-    persist_directory="./chroma_db",
-    embedding_function=embedding_model
-)
+    llm = BedrockLLM(
+        client=bedrock_client,
+        model_id="mistral.mistral-7b-instruct-v0:2"
+    )
 
-# Memory for Conversation History
-memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+    embedding_model = BedrockEmbeddings(
+        client=bedrock_client,
+        model_id="amazon.titan-embed-text-v2:0"
+    )
 
-# Chatbot Pipeline
-chatbot = ConversationalRetrievalChain.from_llm(
-    llm=llm,
-    retriever=vectorstore.as_retriever(),
-    memory=memory
-)
+    vectorstore = Chroma(
+        collection_name="ai_candidates",
+        persist_directory="./chroma_db",
+        embedding_function=embedding_model
+    )
+
+    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+
+    chatbot = ConversationalRetrievalChain.from_llm(
+        llm=llm,
+        retriever=vectorstore.as_retriever(),
+        memory=memory
+    )
 
 st.set_page_config(page_title="AI Hiring Assistant", page_icon="🧑‍💻", layout="wide")
 
@@ -137,26 +150,24 @@ if st.session_state["candidate_info"] and not st.session_state["tech_stack"]:
             st.session_state["tech_stack"] = [tech.strip() for tech in tech_stack_input.split(",")]
             st.success("Tech stack saved! Preparing your interview...")
 
-# --- Generate Questions ---
-if st.session_state["tech_stack"] and not st.session_state["questions"]:
-    tech_stack = st.session_state["tech_stack"]
-    experience = st.session_state["candidate_info"].get("experience", 0)
-
-    difficulty = "beginner" if experience < 2 else "intermediate" if experience < 5 else "advanced"
-
-    prompt = (
-        f"You are an AI interviewer. Generate 6 to 7 {difficulty}-level technical questions for a candidate "
-        f"with expertise in {', '.join(tech_stack)} and {experience} years of experience."
-    )
-
-    response = chatbot({"question": prompt})["answer"]
-    questions = [q.strip() for q in response.split("\n") if q.strip() and q[0].isdigit()]
-    st.session_state["questions"] = questions
-    st.session_state["current_question_index"] = 0
-
-# --- Question & Answer Section ---
 with col2:
     st.markdown("## 🎤 Technical Interview")
+
+    if st.session_state["tech_stack"] and not st.session_state["questions"]:
+        tech_stack = st.session_state["tech_stack"]
+        experience = st.session_state["candidate_info"].get("experience", 0)
+
+        difficulty = "beginner" if experience < 2 else "intermediate" if experience < 5 else "advanced"
+
+        prompt = (
+            f"You are an AI interviewer. Generate 6 to 7 {difficulty}-level technical questions for a candidate "
+            f"with expertise in {', '.join(tech_stack)} and {experience} years of experience."
+        )
+
+        response = chatbot({"question": prompt})["answer"]
+        questions = [q.strip() for q in response.split("\n") if q.strip() and q[0].isdigit()]
+        st.session_state["questions"] = questions
+        st.session_state["current_question_index"] = 0
 
     if st.session_state["questions"]:
         current_index = st.session_state["current_question_index"]
@@ -167,7 +178,7 @@ with col2:
 
         if current_index < total_questions:
             current_question = st.session_state["questions"][current_index]
-            st.write(f"### Question {current_index}/{total_questions}")
+            st.write(f"### Question {current_index+1}/{total_questions}")
             st.info(current_question)
 
             user_answer = st.text_area("Your Answer", key=f"answer_{current_index}")
@@ -182,21 +193,6 @@ with col2:
                     st.rerun()
                 else:
                     st.warning("Please provide an answer before submitting.")
-
-        else:
-            st.success("Interview Complete!")
-            st.write("### Your Responses:")
-            for i, (q, a) in enumerate(zip(st.session_state["questions"], st.session_state["answers"])):
-                st.write(f"**Q{i+1}:** {q}")
-                st.write(f"**A{i+1}:** {a}")
-
-    # --- Chat History ---
-    st.markdown("## 💬 Chat History")
-    for role, message in st.session_state["chat_history"]:
-        if role == "Bot":
-            st.markdown(f"<div class='chat-box bot-message'><b>🤖 {role}:</b> {message}</div>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div class='chat-box user-message'><b>🧑 {role}:</b> {message}</div>", unsafe_allow_html=True)
 
 if st.button("End Interview"):
     st.success("Thank you for your time!")
