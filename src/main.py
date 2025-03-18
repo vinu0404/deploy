@@ -108,7 +108,8 @@ if st.session_state["candidate_info"] and not st.session_state["tech_stack"]:
         tech_stack_input = st.text_input("Tech Stack (Comma-Separated, e.g., Python, Django, AWS)")
 
         if st.button("Submit Tech Stack"):
-            st.session_state["tech_stack"] = [tech.strip() for tech_stack_input.split(",")]
+            st.session_state["tech_stack"] = [tech.strip() for tech in tech_stack_input.split(",")]
+
             st.success("Tech stack saved! Preparing your interview...")
 
 # --- Generate Questions ---
